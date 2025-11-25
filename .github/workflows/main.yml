@@ -1,20 +1,61 @@
-            - name: Cache
-  uses: actions/cache@v4.3.0
-  with:
-    # A list of files, directories, and wildcard patterns to cache and restore
-    path: 
-    # An explicit key for restoring and saving the cache
-    key: 
-    # An ordered multiline string listing the prefix-matched keys, that are used for restoring stale cache if no cache hit occurred for key. Note `cache-hit` returns false in this case.
-    restore-keys: # optional
-    # The chunk size used to split up large files during upload, in bytes
-    upload-chunk-size: # optional
-    # An optional boolean when enabled, allows windows runners to save or restore caches that can be restored or saved respectively on other platforms
-    enableCrossOsArchive: # optional, default is false
-    # Fail the workflow if cache entry is not found
-    fail-on-cache-miss: # optional, default is false
-    # Check if a cache entry exists for the given input(s) (key, restore-keys) without downloading the cache
-    lookup-only: # optional, default is false
-    # Run the post step to save the cache even if another step before fails
-    save-always: # optional, default is false
-          
+name: Reusable Template with Caching
+
+on:
+  workflow_call:
+    inputs:
+      cache-dependency-path:
+        description: 'Path to dependency lockfile for caching'
+        required: false
+        type: string
+        default: ''
+      cache-build-path:
+        description: 'Path to build outputs directory for caching'
+        required: false
+        type: string
+        default: ''
+      node-version:
+        description: 'Node.js version'
+        required: false
+        type: string
+        default: '20'
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: 'npm'  # Auto-caches node_modules if lockfile present
+
+      # Manual caching example (use if auto-cache doesn't fit; conditional to skip if no path)
+      - name: Cache dependencies
+        if: inputs.cache-dependency-path != ''
+        uses: actions/cache@v4
+        with:
+          path: node_modules  # Or your dep dir (e.g., vendor/ for PHP)
+          key: ${{ runner.os }}-deps-${{ hashFiles(inputs.cache-dependency-path) }}
+          restore-keys: |
+            ${{ runner.os }}-deps-
+
+      - name: Install dependencies
+        run: npm ci  # Or pip install -r requirements.txt, etc.
+
+      - name: Cache build outputs
+        if: inputs.cache-build-path != ''
+        uses: actions/cache@v4
+        with:
+          path: ${{ inputs.cache-build-path }}
+          key: ${{ runner.os }}-build-${{ github.sha }}  # SHA for per-commit uniqueness
+          restore-keys: |
+            ${{ runner.os }}-build-
+
+      - name: Build
+        run: npm run build  # Or your build command
+
+      - name: Test
+        run: npm test
